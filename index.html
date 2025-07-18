@@ -91,6 +91,22 @@
       padding-left: 10px; /* Prevent left edge from clipping */
       gap: 20px;
     }
+    .scroll-lock-container {
+      position: sticky;
+      top: calc(100vh - 80px); /* Adjust as needed for your layout */
+      background: white;
+      padding: 6px 12px;
+      z-index: 10;
+      font-size: 16px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    #scoreDisplay {
+      margin-top: 8px;
+      font-size: 16px;
+      text-align: center;
+    }
 
     #missedWordsSection {
       margin-top: 20px;
@@ -112,18 +128,27 @@
     <button onclick="generateRandomBoard()">Random</button>
   </div>
 
-  <!-- Board display -->
+  <!-- Game + Scroll Lock Container -->
+  <div id="gameContainer">
+    <!-- Board display -->
     <div class="grid-container">
       <div class="grid" id="board"></div>
     </div>
 
-  <!-- Lock Scroll -->
-    <div style="margin-top: 10px;">
+    <!-- Lock Scroll -->
+    <div class="scroll-lock-container">
       <label>
         <input type="checkbox" id="scrollLockCheckbox" onchange="toggleScrollLock()">
         Lock Scroll
       </label>
     </div>
+  </div>
+
+  <!-- Score display -->
+  <div id="scoreDisplay">
+    <p>Words Found: <span id="wordsFoundCount">0</span></p>
+    <p>Total Points: <span id="totalPoints">0</span></p>
+  </div>
 
 
   <!-- Import words display -->
@@ -176,6 +201,7 @@
     let timeRemaining = 120; // 2 minutes in seconds
     let isTimerRunning = false;
     let allPossible = [];
+    let totalScore = 0
 
     document.getElementById('bonus-dl').addEventListener('click', () => bonusSelection = 'DL');
     document.getElementById('bonus-tl').addEventListener('click', () => bonusSelection = 'TL');
@@ -298,8 +324,7 @@
           enteredWords.push(word);
           added++;
         }
-      }
-
+      }      
       updateEnteredWordsDisplay();
     }
 
@@ -417,7 +442,7 @@
       board.innerHTML = '';
     }
 
-    function updateSelectedWord() {
+    function updateSelectedWord() {      
       selectedWord = selectedIndices.map(i => letters[i]).join('');
       updateSelectedWordDisplay();
     }
@@ -524,6 +549,7 @@
 
 
     function duringDragTouch(e) {
+      console.log("hi")
       if (!isDragging) return;
 
       const touch = e.touches[0];
@@ -555,7 +581,7 @@
 
 
 
-    function endDrag(e) {
+    function endDrag(e) {     
       if (!isDragging) return;
       isDragging = false;
       if (selectedWord.length > 0) {
@@ -574,6 +600,8 @@
       selectedWord = '';
       updateSelectedWordDisplay();
       clearSelectionStyles();
+      document.getElementById("wordsFoundCount").textContent = enteredWords.length;
+      document.getElementById("totalPoints").textContent = totalScore;
     }
 
     function highlightTiles(indices) {
@@ -757,13 +785,22 @@
 
     function toggleScrollLock() {
       const isChecked = document.getElementById('scrollLockCheckbox').checked;
-
+      const scrollX = window.scrollX || window.pageXOffset;
+      const scrollY = window.scrollY || window.pageYOffset;
       if (isChecked) {
         document.body.style.overflow = 'hidden';
-        document.body.classList.add('locked-scroll');
+        document.documentElement.style.overflow = 'hidden'; // Locks <html> too
+        document.body.style.position = 'fixed';             // Prevent scroll bounce on mobile
+        document.body.style.width = '100%';
+        document.body.style.top = `-${scrollY}px`;
+        document.body.style.left = `-${scrollX}px`;
       } else {
         document.body.style.overflow = '';
-        document.body.classList.remove('locked-scroll');
+        document.documentElement.style.overflow = '';
+        document.body.style.position = '';
+        document.body.style.width = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
       }
     }
 
