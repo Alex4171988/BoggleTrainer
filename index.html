@@ -117,6 +117,15 @@
       <div class="grid" id="board"></div>
     </div>
 
+  <!-- Lock Scroll -->
+    <div style="margin-top: 10px;">
+      <label>
+        <input type="checkbox" id="scrollLockCheckbox" onchange="toggleScrollLock()">
+        Lock Scroll
+      </label>
+    </div>
+
+
   <!-- Import words display -->
     <div style="margin-top: 20px;">
       <label for="foundWordsInput"><strong>Add Found Words (comma or space separated):</strong></label><br>
@@ -743,6 +752,19 @@
           alert("Time's up!");
         }
       }, 1000);
+    }
+
+
+    function toggleScrollLock() {
+      const isChecked = document.getElementById('scrollLockCheckbox').checked;
+
+      if (isChecked) {
+        document.body.style.overflow = 'hidden';
+        document.body.classList.add('locked-scroll');
+      } else {
+        document.body.style.overflow = '';
+        document.body.classList.remove('locked-scroll');
+      }
     }
 
     function updateTimerDisplay() {
