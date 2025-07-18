@@ -10,27 +10,47 @@
       text-align: center;
     }
 
+    .grid-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 90vh; /* Reserve some vertical space for word list, header, etc. */
+    }   
+
+
+
     .grid {
       display: grid;
-      grid-template-columns: repeat(4, 60px);
-      grid-gap: 10px;
-      justify-content: center;
-      margin-top: 20px;
+      grid-template-columns: repeat(4, 1fr);
+      aspect-ratio: 1 / 1; /* Makes the whole grid square */
+      width: 90vmin; /* Automatically scales with screen */
+      max-width: 90vmin;
+      max-height: 90vmin;
+      gap: 5px;
     }
+
+
+
 
     .tile {
-      background-color: #f0f0f0;
-      border: 2px solid #888;
-      border-radius: 10px;
-      font-size: 24px;
+      aspect-ratio: 1; /* make each tile square */
+      font-size: calc(2vmin + 10px); /* responsive font size */
       font-weight: bold;
-      line-height: 60px;
-      text-align: center;
-      width: 60px;
-      height: 60px;
+      background-color: #f0f0f0;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       user-select: none;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      padding: 0; /* avoid size shifting */
     }
-
+    tile:hover {
+      transform: scale(1.05); /* gentle hover zoom */
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    }
     .tile.selected {
       background-color: #a0d2f0;
       border-color: #3399ff;
@@ -65,6 +85,12 @@
       background-color: #4caf50; /* green */
       color: white;
     }
+    .scroll-wrapper {
+      display: flex;
+      overflow-x: auto;
+      padding-left: 10px; /* Prevent left edge from clipping */
+      gap: 20px;
+    }
 
     #missedWordsSection {
       margin-top: 20px;
@@ -79,7 +105,6 @@
 <body>
   <h1>Boggle Trainer</h1>
 
-  <!-- Board setup inputs -->
   <div>
     <label for="customInput">Custom board (16 letters):</label><br>
     <input id="customInput" type="text" maxlength="16" placeholder="trapeshoulundmbec" />
@@ -88,7 +113,9 @@
   </div>
 
   <!-- Board display -->
-  <div id="board" class="grid"></div>
+    <div class="grid-container">
+      <div class="grid" id="board"></div>
+    </div>
 
   <!-- Import words display -->
     <div style="margin-top: 20px;">
@@ -120,6 +147,7 @@
     <div id="missedWordsList" style="display: none;"></div>
   </div>
 
+  <div id="power-groups-container"></div>
   <!-- JavaScript -->
   <script>
     const boardEl = document.getElementById('board');
@@ -138,12 +166,15 @@
     let timerInterval = null;
     let timeRemaining = 120; // 2 minutes in seconds
     let isTimerRunning = false;
+    let allPossible = [];
 
     document.getElementById('bonus-dl').addEventListener('click', () => bonusSelection = 'DL');
     document.getElementById('bonus-tl').addEventListener('click', () => bonusSelection = 'TL');
     document.getElementById('bonus-dw').addEventListener('click', () => bonusSelection = 'DW');
     document.getElementById('bonus-tw').addEventListener('click', () => bonusSelection = 'TW');
-    document.getElementById('clear-bonuses').addEventListener('click', clearBonuses);
+    document.getElementById('clear-bonuses').addEventListener('click', clearBonuses);   
+    boardEl.addEventListener('mousemove', duringDragByCircle);
+    boardEl.addEventListener('touchmove', duringDragByCircleTouch);
 
     // Load dictionary from file
     async function loadDictionary() {
@@ -171,6 +202,75 @@
     function clearBonuses() {
         bonusBoard = Array(4).fill(null).map(() => Array(4).fill(null));
         renderBoard(letters);
+    }
+
+
+    function duringDragByCircle(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+  
+      const rect = boardEl.getBoundingClientRect();
+      const pointerX = e.clientX - rect.left;
+      const pointerY = e.clientY - rect.top;
+  
+      for (let tile of boardEl.children) {
+        const index = Number(tile.dataset.index);
+        if (selectedIndices.includes(index)) continue;
+    
+        const tileRect = tile.getBoundingClientRect();
+        const tileCenterX = tileRect.left + tileRect.width / 2;
+        const tileCenterY = tileRect.top + tileRect.height / 2;
+    
+        // Calculate distance from pointer to tile center
+        const dist = Math.sqrt(
+          Math.pow(e.clientX - tileCenterX, 2) + Math.pow(e.clientY - tileCenterY, 2)
+        );
+    
+        if (dist <= tileRect.width / 2) { // radius = half width
+          // Check adjacency to last selected
+          const lastIndex = selectedIndices[selectedIndices.length - 1];
+          if (lastIndex === undefined || isAdjacent(lastIndex, index)) {
+            selectedIndices.push(index);
+            updateSelectedWord();
+            tile.classList.add('selected');
+            break;  // Only select one tile per event
+          }
+        }
+      }
+    }
+
+
+    function duringDragByCircleTouch(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+
+      const touch = e.touches[0];
+      const rect = boardEl.getBoundingClientRect();
+      const pointerX = touch.clientX - rect.left;
+      const pointerY = touch.clientY - rect.top;
+
+      for (let tile of boardEl.children) {
+        const index = Number(tile.dataset.index);
+        if (selectedIndices.includes(index)) continue;
+
+        const tileRect = tile.getBoundingClientRect();
+        const tileCenterX = tileRect.left + tileRect.width / 2;
+        const tileCenterY = tileRect.top + tileRect.height / 2;
+
+        const dist = Math.sqrt(
+          Math.pow(touch.clientX - tileCenterX, 2) + Math.pow(touch.clientY - tileCenterY, 2)
+        );
+
+      if (dist <= tileRect.width / 2) {
+          const lastIndex = selectedIndices[selectedIndices.length - 1];
+          if (lastIndex === undefined || isAdjacent(lastIndex, index)) {
+            selectedIndices.push(index);
+            updateSelectedWord();
+            tile.classList.add('selected');
+            break;
+          }
+        }
+      }
     }
 
 
@@ -238,14 +338,20 @@
           tile.classList.add('bonus-DL');
         }
 
-        tile.addEventListener('mousedown', startDrag);
-        tile.addEventListener('touchstart', startDrag);
 
+        if (bonusSelection) {
+          tile.addEventListener('click', function () {
+            bonusBoard[row][col] = bonusSelection;
+            renderBoard(letters);
+          });
+        } 
+        tile.addEventListener('mousedown', startDrag);
+        tile.addEventListener('touchstart', startDragTouch);
         tile.addEventListener('mouseenter', duringDrag);
         tile.addEventListener('touchmove', duringDragTouch);
-
         tile.addEventListener('mouseup', endDrag);
         tile.addEventListener('touchend', endDrag);
+        
 
         tile.addEventListener('click', function () {
           if (bonusSelection) {
@@ -264,6 +370,39 @@
       updateEnteredWordsDisplay();
       clearMissedWords();
     }
+
+
+
+
+
+    function startDrag(e) {
+
+      const element = e.target;
+      if (!element.classList.contains('tile')) return;
+
+      const index = Number(element.dataset.index);
+      isDragging = true;
+      selectedIndices = [index];
+      updateSelectedWord();
+      element.classList.add('selected');
+    }
+
+
+    function startDragTouch(e) {
+      if (bonusSelection) return;
+
+      const touch = e.touches[0];
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (!element || !element.classList.contains('tile')) return;
+
+      const index = Number(element.dataset.index);
+      isDragging = true;
+      selectedIndices = [index];
+      updateSelectedWord();
+      element.classList.add('selected');
+    }
+
+
 
     function clearBoard() {
       board.innerHTML = '';
@@ -287,6 +426,7 @@
       wordDisplay.textContent = selectedWord
         ? `Current Word: ${selectedWord.toUpperCase()}`
         : 'Swipe letters to form a word';
+ 	
     }
 
     function updateEnteredWordsDisplay() {
@@ -348,44 +488,63 @@
 
 
 
-    function startDrag(e) {
-      e.preventDefault();
-      isDragging = true;
-      clearSelectionStyles();
-      const index = Number(e.target.dataset.index);
-      selectedIndices = [index];
-      updateSelectedWord();
-      e.target.classList.add('selected');
-    }
-
     function duringDrag(e) {
       if (!isDragging) return;
-      const index = Number(e.target.dataset.index);
-      if (!selectedIndices.includes(index)) {
-        const lastIndex = selectedIndices[selectedIndices.length -1];
-        if (isAdjacent(lastIndex, index)) {
-          selectedIndices.push(index);
-          updateSelectedWord();
-          e.target.classList.add('selected');
+
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
+
+      document.querySelectorAll('.tile').forEach(tile => {
+        const index = Number(tile.dataset.index);
+        if (selectedIndices.includes(index)) return;
+
+        const rect = tile.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const radius = rect.width / 2 * 0.85; // 85% of half tile width
+
+        const dx = mouseX - centerX;
+        const dy = mouseY - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance <= radius) {
+          selectTile(tile);
         }
-      }
+      });
     }
+
 
     function duringDragTouch(e) {
       if (!isDragging) return;
+
       const touch = e.touches[0];
       const element = document.elementFromPoint(touch.clientX, touch.clientY);
       if (!element || !element.classList.contains('tile')) return;
+
       const index = Number(element.dataset.index);
-      if (!selectedIndices.includes(index)) {
-        const lastIndex = selectedIndices[selectedIndices.length -1];
-        if (isAdjacent(lastIndex, index)) {
-          selectedIndices.push(index);
-          updateSelectedWord();
-          element.classList.add('selected');
-        }
+      if (selectedIndices.includes(index)) return;
+
+      // Check if touch is within the inner circle
+      const rect = element.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const radius = rect.width / 2 * 0.6; // adjust 0.6 as needed for circle size
+      const dx = touch.clientX - centerX;
+      const dy = touch.clientY - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance > radius) return; // outside the inner circle
+
+      const lastIndex = selectedIndices[selectedIndices.length - 1];
+      if (isAdjacent(lastIndex, index)) {
+        selectedIndices.push(index);
+        updateSelectedWord();
+        element.classList.add('selected');
       }
     }
+
+
+
 
     function endDrag(e) {
       if (!isDragging) return;
@@ -614,11 +773,13 @@
       missedWordsDiv.style.display = 'block';
 
       const foundSet = new Set(enteredWords);
-      const allPossible = Array.from(dictionary).filter(word =>
-        word.length >= 3 &&
+      
+      allPossible = Array.from(dictionary).filter(word =>
+        word.length >= 1 &&
         canBeFormed(word) &&
         isWordOnBoard(word)
       );
+      
 
       const missed = allPossible.filter(word => !foundSet.has(word));      
 
@@ -637,6 +798,47 @@
         <strong>Missed Words - Full Score:</strong><br>
         <table border="1" style="margin: 10px auto; border-collapse: collapse;">
           <tr><th>Word</th><th>Full Score</th></tr>`
+
+      const powerGroups = {};
+      for (const word of allPossible) {
+        const key = word.split('').sort().join('');
+        if (!powerGroups[key]) powerGroups[key] = [];
+        powerGroups[key].push(word);
+      }
+
+      
+
+      // Step 1: Build group + score objects
+      const sortedGroups = Object.values(powerGroups).map(group => {
+        const score = group.reduce((sum, word) => sum + calculateBaseScore(word), 0);
+        return { group, score };
+      });
+      
+      // Step 2: Sort by descending group score
+      sortedGroups.sort((a, b) => b.score - a.score);
+      
+      let powerGroupsHTML = `<div style="text-align: center;">
+        <strong>Missed Words - Power Groups (Sorted by Score):</strong><br>
+        <table border="1" style="margin: 10px auto; border-collapse: collapse;">
+          <tr><th>Word</th><th>Group Score</th></tr>`;
+
+      // Step 3: Display each group
+      for (const { group, score } of sortedGroups) {
+        group.sort(); // optional for consistency
+
+        group.forEach((word, index) => {
+          powerGroupsHTML += `<tr>
+            <td>${word}</td>
+            <td>${index === 0 ? score : ''}</td>
+          </tr>`;
+        });
+      }
+
+
+
+
+      powerGroupsHTML += `</table></div>`;
+
       const rawScoreArr = [];
       const baseScoreArr = [];
       const fullScoreArr = [];
@@ -671,14 +873,15 @@
       }
 
      rawScoreHTML += `</table></div>`;
-baseScoreHTML += `</table></div>`;
-fullScoreHTML += `</table></div>`;
-
+     baseScoreHTML += `</table></div>`;
+     fullScoreHTML += `</table></div>`;
+     powerGroupsHTML += `</table></div>`;
       missedWordsDiv.innerHTML = `
-        <div style="display: flex; justify-content: center; gap: 30px;">
+        <div class="scroll-wrapper">
           ${rawScoreHTML}
           ${baseScoreHTML}
           ${fullScoreHTML}
+          ${powerGroupsHTML}
        </div>
       `;
     }
@@ -688,47 +891,175 @@ fullScoreHTML += `</table></div>`;
       missedWordsDiv.style.display = 'none';
       missedWordsDiv.innerHTML = '';
     }
-    function isWordOnBoard(word) {
-      const rows = letterGrid.length;
-  const cols = letterGrid[0].length;
-  const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
 
-  function dfs(row, col, index) {
-    if (
-      row < 0 || row >= rows ||
-      col < 0 || col >= cols ||
-      visited[row][col] ||
-      letterGrid[row][col] !== word[index]
-    ) {
-      return false;
-    }
+    function getPowerGroups(words) {
+      const visited = new Set();
+      const groups = [];
 
-    if (index === word.length - 1) return true;
+      function areWordsConnected(word1, word2) {
+        if (Math.abs(word1.length - word2.length) > 1) return false;
 
-    visited[row][col] = true;
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr !== 0 || dc !== 0) {
-          if (dfs(row + dr, col + dc, index + 1)) {
-            visited[row][col] = false;  // unmark before returning
-            return true;
+        // Substitution (same length, 1 letter different)
+        if (word1.length === word2.length) {
+          let diffs = 0;
+          for (let i = 0; i < word1.length; i++) {
+            if (word1[i] !== word2[i]) diffs++;
+            if (diffs > 1) return false;
+          }
+          return diffs === 1;
+        }
+
+        // Addition or deletion (1 char off)
+        if (word1.length > word2.length) [word1, word2] = [word2, word1]; // Ensure word1 is shorter
+        for (let i = 0; i <= word2.length; i++) {
+          const modified = word2.slice(0, i) + word2.slice(i + 1);
+          if (modified === word1) return true;
+        }
+        return false;
+      }
+
+      function findGroup(startWord) {
+        const group = new Set();
+        const queue = [startWord];
+        group.add(startWord);
+        visited.add(startWord);
+
+        while (queue.length > 0) {
+          const current = queue.pop();
+          for (const other of words) {
+            if (!visited.has(other) && areWordsConnected(current, other)) {
+              visited.add(other);
+              group.add(other);
+              queue.push(other);
+            }
           }
         }
+
+        return Array.from(group);
       }
+
+      for (const word of words) {
+        if (!visited.has(word)) {
+          const group = findGroup(word);
+          groups.push(group);
+        }
+      }
+    
+      return groups;
     }
 
-    visited[row][col] = false;
-    return false;
-  }
+    function generatePowerGroupsTable(allPossible) {
+      const groups = [];
 
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (dfs(r, c, 0)) return true;
+      for (let i = 0; i < allPossible.length; i++) {
+        const wordA = allPossible[i];
+        let added = false;
+
+        for (const group of groups) {
+          for (const wordB of group) {
+            if (areWordsPowerGroup(wordA, wordB)) {
+              group.push(wordA);
+              added = true;
+              break;
+            }
+          }
+          if (added) break;
+        }
+    
+        if (!added) {
+          groups.push([wordA]);
+        }
+      }
+    
+      // Sort groups by score descending
+      groups.sort((a, b) => calculateBaseScore(b[0]) * b.length - calculateBaseScore(a[0]) * a.length);
+    
+      // Create table element
+      const table = document.createElement('table');
+      table.className = 'score-table'; // Use shared table style
+    
+      // Table header
+      const thead = document.createElement('thead');
+      thead.innerHTML = `
+        <tr>
+          <th>Word</th>
+          <th>Length</th>
+          <th>Group Score</th>
+        </tr>`;
+      table.appendChild(thead);
+
+      // Table body
+      const tbody = document.createElement('tbody');
+    
+      for (const group of groups) {
+        for (let i = 0; i < group.length; i++) {
+          const word = group[i];
+          const row = document.createElement('tr');
+
+          // Only the first word in the group gets a score
+          const score = i === 0 ? calculateBaseScore(word) * group.length : '';
+
+          row.innerHTML = `
+            <td>${word}</td>
+            <td>${word.length}</td>
+            <td>${score}</td>
+          `;
+
+          tbody.appendChild(row);
+        }
+      }
+
+      table.appendChild(tbody);
+      return table;
     }
-  }
 
-  return false;
-}
+
+
+
+
+
+
+    function isWordOnBoard(word) {
+      const rows = letterGrid.length;
+      const cols = letterGrid[0].length;
+      const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+
+      function dfs(row, col, index) {
+        if (
+          row < 0 || row >= rows ||
+          col < 0 || col >= cols ||
+          visited[row][col] ||
+          letterGrid[row][col] !== word[index]
+        ) {
+          return false;
+        }
+    
+        if (index === word.length - 1) return true;
+    
+        visited[row][col] = true;
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr !== 0 || dc !== 0) {
+              if (dfs(row + dr, col + dc, index + 1)) {
+                visited[row][col] = false;  // unmark before returning
+                return true;
+              }
+            }
+          }
+        }
+
+        visited[row][col] = false;
+        return false;
+      }
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (dfs(r, c, 0)) return true;
+        }
+      }
+
+      return false;
+    }
 
     // Stub for word validation (replace with solver later)
     function canBeFormed(word) {
