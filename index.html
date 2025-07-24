@@ -17,8 +17,6 @@
       height: 90vh; /* Reserve some vertical space for word list, header, etc. */
     }   
 
-
-
     .grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -28,9 +26,6 @@
       max-height: 90vmin;
       gap: 5px;
     }
-
-
-
 
     .tile {
       aspect-ratio: 1; /* make each tile square */
@@ -202,6 +197,16 @@
     let isTimerRunning = false;
     let allPossible = [];
     let totalScore = 0
+    const DISTANCE_WEIGHTS = {
+      1: 1.0,
+      2: 0.5,
+      3: 0.25,
+    };
+
+const CONSTANT_PENALTY = 2;  // Example, subtract 2 points per penalty word neighbor
+const PERCENTAGE_PENALTY = 0.20;  // Multiply neighbor points by 75% per penalty word overlap
+
+
 
     document.getElementById('bonus-dl').addEventListener('click', () => bonusSelection = 'DL');
     document.getElementById('bonus-tl').addEventListener('click', () => bonusSelection = 'TL');
@@ -225,6 +230,33 @@
         alert('Error loading dictionary: ' + error.message);
       }
     }
+
+    let wordGraph = {};
+
+    async function loadWordGraph() {
+      try {
+        const response = await fetch('wordGraph.txt');
+        if (!response.ok) throw new Error('Failed to load wordGraph.txt');
+        const text = await response.text();
+    
+        // Each line: WORD → NEIGHBOR1, NEIGHBOR2, ...
+        wordGraph = {};
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const [wordPart, neighborsPart] = line.split('→').map(s => s.trim());
+          if (!wordPart || !neighborsPart) continue;
+          const word = wordPart.toUpperCase();
+          const neighbors = neighborsPart.split(',').map(n => n.trim().toUpperCase());
+          wordGraph[word] = neighbors;
+        }
+    
+        console.log(`Loaded wordGraph with ${Object.keys(wordGraph).length} words`);
+      } catch (error) {
+        alert('Error loading wordGraph.txt: ' + error.message);
+      }
+    }
+
 
     function getRowCol(index) {
       return { row: Math.floor(index / 4), col: index % 4 };
@@ -308,7 +340,6 @@
       }
     }
 
-
     function addFoundWords() {
       const input = document.getElementById('foundWordsInput').value;
       if (!input) return;
@@ -327,10 +358,6 @@
       }      
       updateEnteredWordsDisplay();
     }
-
-
-
-
 
     function isAdjacent(idx1, idx2) {
       const a = getRowCol(idx1);
@@ -405,10 +432,6 @@
       clearMissedWords();
     }
 
-
-
-
-
     function startDrag(e) {
 
       const element = e.target;
@@ -421,9 +444,7 @@
       element.classList.add('selected');
     }
 
-
-    function startDragTouch(e) {    
-
+    function startDragTouch(e) {
       const touch = e.touches[0];
       const element = document.elementFromPoint(touch.clientX, touch.clientY);
       if (!element || !element.classList.contains('tile')) return;
@@ -434,7 +455,6 @@
       updateSelectedWord();
       element.classList.add('selected');
     }
-
 
 
     function clearBoard() {
@@ -519,8 +539,6 @@
      return false;
     }
 
-
-
     function duringDrag(e) {
       if (!isDragging) return;
 
@@ -548,7 +566,6 @@
 
 
     function duringDragTouch(e) {
-      console.log("hi")
       if (!isDragging) return;
 
       const touch = e.touches[0];
@@ -576,9 +593,6 @@
         element.classList.add('selected');
       }
     }
-
-
-
 
     function endDrag(e) {     
       if (!isDragging) return;
@@ -826,36 +840,40 @@
       updateEnteredWordsDisplay();
     }
 
-    function showMissedWords() {
+    
+
+
+   function showMissedWords() {
+      const penalties = {};
       const missedWordsDiv = document.getElementById('missedWordsList');
       missedWordsDiv.style.display = 'block';
 
       const foundSet = new Set(enteredWords);
-      
-      allPossible = Array.from(dictionary).filter(word =>
+
+      // All dictionary words >= 1 letter that can be formed and are on the board
+      const allPossible = Array.from(dictionary).filter(word =>
         word.length >= 1 &&
         canBeFormed(word) &&
         isWordOnBoard(word)
       );
-      
 
-      const missed = allPossible.filter(word => !foundSet.has(word));      
+      const missed = allPossible.filter(word => !foundSet.has(word));
 
-      // Create HTML table
+      // Create HTML tables for raw, base, and full scores
       let rawScoreHTML = `<div style="text-align: center;">
-       <strong>Missed Words - Raw Score:</strong><br>
-       <table border="1" style="margin: 10px auto; border-collapse: collapse;">
-        <tr><th>Word</th><th>Raw Score</th></tr>`;
+        <strong>Connections:</strong><br>
+        <table border="1" style="margin: 10px auto; border-collapse: collapse;">
+          <tr><th>Word</th><th>Raw Score</th></tr>`;
 
       let baseScoreHTML = `<div style="text-align: center;">
-        <strong>Missed Words - Base Score:</strong><br>
+        <strong>Base Strength Score:</strong><br>
         <table border="1" style="margin: 10px auto; border-collapse: collapse;">
           <tr><th>Word</th><th>Base Score</th></tr>`;
-
+    
       let fullScoreHTML = `<div style="text-align: center;">
-        <strong>Missed Words - Full Score:</strong><br>
+        <strong>Full Strength Score:</strong><br>
         <table border="1" style="margin: 10px auto; border-collapse: collapse;">
-          <tr><th>Word</th><th>Full Score</th></tr>`
+          <tr><th>Word</th><th>Full Score</th></tr>`;
 
       const powerGroups = {};
       for (const word of allPossible) {
@@ -864,46 +882,30 @@
         powerGroups[key].push(word);
       }
 
-      
-
       // Step 1: Build group + score objects
       const sortedGroups = Object.values(powerGroups).map(group => {
-        const score = group.reduce((sum, word) => sum + calculateBaseScore(word), 0);
-        return { group, score };
+      const groupSet = new Set(group.map(w => w.toUpperCase()));
+    
+        // Sum power scores for each word with other group words as penalties
+        const groupScore = group.reduce((sum, word) => {
+          const penaltyWords = new Set([...groupSet].filter(w => w !== word.toUpperCase()));
+          return sum + calculatePowerScore(word, penaltyWords);
+        }, 0);
+    
+        return { group, score: groupScore };
       });
-      
+
       // Step 2: Sort by descending group score
       sortedGroups.sort((a, b) => b.score - a.score);
-      
-      let powerGroupsHTML = `<div style="text-align: center;">
-        <strong>Missed Words - Power Groups (Sorted by Score):</strong><br>
-        <table border="1" style="margin: 10px auto; border-collapse: collapse;">
-          <tr><th>Word</th><th>Group Score</th></tr>`;
 
-      // Step 3: Display each group
-      for (const { group, score } of sortedGroups) {
-        group.sort(); // optional for consistency
-
-        group.forEach((word, index) => {
-          powerGroupsHTML += `<tr>
-            <td>${word}</td>
-            <td>${index === 0 ? score : ''}</td>
-          </tr>`;
-        });
-      }
-
-
-
-
-      powerGroupsHTML += `</table></div>`;
-
+      // Calculate raw, base, full scores for each missed word
       const rawScoreArr = [];
       const baseScoreArr = [];
       const fullScoreArr = [];
-
-
+    
       for (const missedWord of missed) {
-        let rawScore = enteredWords.reduce((score, w) => score + (isOneLetterOff(missedWord, w) || isAnagram(missedWord, w) ? 1 : 0), 0);
+        let rawScore = enteredWords.reduce((score, w) =>
+          score + (isOneLetterOff(missedWord, w) || isAnagram(missedWord, w) ? 1 : 0), 0);
         let baseScore = calculateBaseScore(missedWord) * rawScore;
         let path = findWordPath(missedWord);
         let fullScore = path ? calculateScoreWithBonuses(missedWord, path) * rawScore : 0;
@@ -911,38 +913,227 @@
         baseScoreArr.push({ word: missedWord, score: baseScore });
         fullScoreArr.push({ word: missedWord, score: fullScore });
       }
+
       rawScoreArr.sort((a, b) => b.score - a.score || a.word.localeCompare(b.word));
       baseScoreArr.sort((a, b) => b.score - a.score || a.word.localeCompare(b.word));
       fullScoreArr.sort((a, b) => b.score - a.score || a.word.localeCompare(b.word));
-
+    
       for (const item of rawScoreArr) {
         rawScoreHTML += `<tr><td>${item.word}</td><td>${item.score}</td></tr>`;
-
       }
 
       for (const item of baseScoreArr) {
         baseScoreHTML += `<tr><td>${item.word}</td><td>${item.score}</td></tr>`;
-
       }
 
       for (const item of fullScoreArr) {
         fullScoreHTML += `<tr><td>${item.word}</td><td>${item.score}</td></tr>`;
-
       }
 
-     rawScoreHTML += `</table></div>`;
-     baseScoreHTML += `</table></div>`;
-     fullScoreHTML += `</table></div>`;
-     powerGroupsHTML += `</table></div>`;
+      rawScoreHTML += `</table></div>`;
+      baseScoreHTML += `</table></div>`;
+      fullScoreHTML += `</table></div>`;
+
+      // ==== NEW POWERGROUPS TABLE CODE ====
+
+      // Filter words on board with length >= 3 for power group ranking
+      const wordsOnBoard = Array.from(dictionary).filter(word => word.length >= 3 && isWordOnBoard(word));
+
+      // Build wordNeighbors map (word -> { neighborWord: distance, ... })
+      const wordNeighbors = {};
+      for (const w of wordsOnBoard) {
+        wordNeighbors[w] = getNeighborsWithinDistance(w, 3);
+        for (const w2 of wordsOnBoard) {
+          if (w === w2) continue;
+          if (isOneLetterOff(w, w2) || isAnagram(w, w2)) {
+            wordNeighbors[w][w2] = 1; // distance 1
+          }
+        }
+      }
+    
+      // Prepare powerGroups array for ranking
+      const fullPowerGroups = Object.values(powerGroups).flatMap(group =>
+        group.map(word => ({
+          word,
+          neighbors: Object.entries(wordNeighbors[word] || {})
+        }))
+      );
+
+      // Make sure penalties is defined in your scope
+      // Example:
+      // const penalties = {};
+    
+      const rankedPowerGroups = getRankedPowerGroups(fullPowerGroups, penalties);
+
+      let topPowerGroupsHTML = `<div style="text-align:center;">
+        <strong>Top 3 Power Group Words:</strong><br>
+        <table border="1" style="margin:10px auto; border-collapse: collapse;">
+          <tr><th>Rank</th><th>Word</th><th>Power Score</th><th>Distance</th></tr>`;
+    
+      // Display only top 3 ranked power groups
+      rankedPowerGroups.slice(0, 3).forEach(({ word, score, neighbors }, idx) => {
+        neighbors.sort((a, b) => {
+        if (a.distance !== b.distance) {
+          return a.distance - b.distance; // sort by distance ascending
+        }
+        return a.word.localeCompare(b.word); // then alphabetically if same distance
+      });
+        topPowerGroupsHTML += `
+          <tr>
+            <td>${idx + 1}</td>
+            <td><b>${word}</b></td>
+            <td><b>${score.toFixed(2)}</b></td>
+            <td></td>
+          </tr>`;
+    
+        neighbors.forEach(({ word: neighborWord, distance, contribution }) => {
+          topPowerGroupsHTML += `
+            <tr>
+              <td></td>
+              <td style="padding-left: 2em;">${neighborWord}</td>
+              <td>${contribution.toFixed(2)}</td>
+              <td>${distance}</td>
+            </tr>`;
+        });
+      });
+
+      topPowerGroupsHTML += `</table></div>`;
+
+      // Combine all HTML tables inside the missedWordsDiv
       missedWordsDiv.innerHTML = `
         <div class="scroll-wrapper">
           ${rawScoreHTML}
           ${baseScoreHTML}
           ${fullScoreHTML}
-          ${powerGroupsHTML}
-       </div>
+          ${topPowerGroupsHTML}
+        </div>
       `;
     }
+      
+    function calculatePowerScore(word, penaltyWords = new Set()) {
+      const UPPER_WORD = word.toUpperCase();
+      const normalizedPenaltyWords = new Set([...penaltyWords].map(w => w.toUpperCase()));
+      const basePoints = calculateBaseScore(UPPER_WORD);
+      let powerScore = basePoints;
+
+      const neighbors = getNeighborsWithinDistance(UPPER_WORD, 3);
+      const neighborDetails = [];
+
+      for (const [neighborRaw, dist] of Object.entries(neighbors)) {
+        const neighbor = neighborRaw.toUpperCase();
+        let neighborBase = calculateBaseScore(neighbor);
+        const distWeight = DISTANCE_WEIGHTS[dist] || 0;
+
+        const isPenalty = normalizedPenaltyWords.has(neighbor);
+        if (isPenalty) {
+          neighborBase = Math.max(0, neighborBase - CONSTANT_PENALTY);
+          neighborBase *= PERCENTAGE_PENALTY;
+        }
+
+        const penalizedNeighborScore = neighborBase * (isPenalty ? 0.5 : 1);
+        const contribution = penalizedNeighborScore * distWeight;
+        powerScore += contribution;
+
+        neighborDetails.push({
+          word: UPPER_WORD,
+          neighbor,
+          dist,
+          neighborBase,
+          distWeight,
+          isPenalty,
+          contribution
+        });
+
+if(isPenalty & false){
+console.log("PENALTY TRIGGERED", {
+  word: UPPER_WORD,
+  neighbor,
+  dist,
+  neighborBase,
+  contribution,
+});
+}
+
+
+
+      }
+      return {
+        powerScore,
+        neighbors: neighborDetails
+      };
+    }
+
+
+function getRankedPowerGroups(powerGroups) {
+  const DISTANCE_WEIGHTS = { 1: 1, 2: 0.5, 3: 0.25 };
+
+  // First pass: compute raw scores (no penalty)
+  const preliminary = powerGroups.map(group => {
+    const { word, neighbors } = group;
+    let totalContribution = 0;
+    const neighborDetails = [];
+
+    if (neighbors) {
+      neighbors.forEach(([neighborWord, dist]) => {
+        const baseScore = calculateBaseScore(neighborWord);
+        const weight = DISTANCE_WEIGHTS[dist] || 0;
+        const contribution = baseScore * weight;
+
+        neighborDetails.push({
+          word: neighborWord,
+          distance: dist,
+          contribution,
+          neighborBase: baseScore,
+          penaltyApplied: false,
+        });
+
+        totalContribution += contribution;
+      });
+    }
+
+    return {
+      word,
+      rawScore: totalContribution,
+      neighbors: neighborDetails,
+    };
+  });
+
+  // Sort by raw score
+  preliminary.sort((a, b) => b.rawScore - a.rawScore);
+
+  // Now apply penalty based on earlier-ranked words
+  const usedWords = new Set();
+  const ranked = [];
+
+  for (const group of preliminary) {
+    let score = 0;
+    const adjustedNeighbors = group.neighbors.map(n => {
+      const isPenalized = usedWords.has(n.word);
+      const adjustedContribution = isPenalized ? n.contribution * 0.5 : n.contribution;
+      score += adjustedContribution;
+
+      return {
+        ...n,
+        contribution: adjustedContribution,
+        penaltyApplied: isPenalized,
+      };
+    });
+
+    ranked.push({
+      word: group.word,
+      score,
+      neighbors: adjustedNeighbors,
+    });
+
+    // Add the group word and neighbors to usedWords AFTER processing
+    usedWords.add(group.word);
+    group.neighbors.forEach(n => usedWords.add(n.word));
+  }
+
+  return ranked;
+}
+
+
 
     function clearMissedWords() {
       const missedWordsDiv = document.getElementById('missedWordsList');
@@ -950,129 +1141,40 @@
       missedWordsDiv.innerHTML = '';
     }
 
-    function getPowerGroups(words) {
-      const visited = new Set();
-      const groups = [];
 
-      function areWordsConnected(word1, word2) {
-        if (Math.abs(word1.length - word2.length) > 1) return false;
 
-        // Substitution (same length, 1 letter different)
-        if (word1.length === word2.length) {
-          let diffs = 0;
-          for (let i = 0; i < word1.length; i++) {
-            if (word1[i] !== word2[i]) diffs++;
-            if (diffs > 1) return false;
-          }
-          return diffs === 1;
-        }
 
-        // Addition or deletion (1 char off)
-        if (word1.length > word2.length) [word1, word2] = [word2, word1]; // Ensure word1 is shorter
-        for (let i = 0; i <= word2.length; i++) {
-          const modified = word2.slice(0, i) + word2.slice(i + 1);
-          if (modified === word1) return true;
-        }
-        return false;
-      }
-
-      function findGroup(startWord) {
-        const group = new Set();
-        const queue = [startWord];
-        group.add(startWord);
-        visited.add(startWord);
-
-        while (queue.length > 0) {
-          const current = queue.pop();
-          for (const other of words) {
-            if (!visited.has(other) && areWordsConnected(current, other)) {
-              visited.add(other);
-              group.add(other);
-              queue.push(other);
+    function getNeighborsWithinDistance(word, maxDistance = 3) {
+      if (!wordGraph[word]) return {};
+  
+      const neighborsByDistance = {};
+      const visited = new Set([word]);
+      const queue = [{ w: word, dist: 0 }];
+  
+      while (queue.length > 0) {
+        const { w, dist } = queue.shift();
+        if (dist === 0) {
+          // Skip the original word itself for neighbors
+        } else if (dist <= maxDistance) {
+          // Only add if on board
+          if (isWordOnBoard(w)) {
+            // If not recorded yet, or found a closer distance
+            if (!neighborsByDistance[w] || dist < neighborsByDistance[w]) {
+              neighborsByDistance[w] = dist;
             }
           }
         }
-
-        return Array.from(group);
-      }
-
-      for (const word of words) {
-        if (!visited.has(word)) {
-          const group = findGroup(word);
-          groups.push(group);
-        }
-      }
-    
-      return groups;
-    }
-
-    function generatePowerGroupsTable(allPossible) {
-      const groups = [];
-
-      for (let i = 0; i < allPossible.length; i++) {
-        const wordA = allPossible[i];
-        let added = false;
-
-        for (const group of groups) {
-          for (const wordB of group) {
-            if (areWordsPowerGroup(wordA, wordB)) {
-              group.push(wordA);
-              added = true;
-              break;
+        if (dist < maxDistance && wordGraph[w]) {
+          for (const n of wordGraph[w]) {
+            if (!visited.has(n)) {
+              visited.add(n);
+              queue.push({ w: n, dist: dist + 1 });
             }
           }
-          if (added) break;
-        }
-    
-        if (!added) {
-          groups.push([wordA]);
         }
       }
-    
-      // Sort groups by score descending
-      groups.sort((a, b) => calculateBaseScore(b[0]) * b.length - calculateBaseScore(a[0]) * a.length);
-    
-      // Create table element
-      const table = document.createElement('table');
-      table.className = 'score-table'; // Use shared table style
-    
-      // Table header
-      const thead = document.createElement('thead');
-      thead.innerHTML = `
-        <tr>
-          <th>Word</th>
-          <th>Length</th>
-          <th>Group Score</th>
-        </tr>`;
-      table.appendChild(thead);
-
-      // Table body
-      const tbody = document.createElement('tbody');
-    
-      for (const group of groups) {
-        for (let i = 0; i < group.length; i++) {
-          const word = group[i];
-          const row = document.createElement('tr');
-
-          // Only the first word in the group gets a score
-          const score = i === 0 ? calculateBaseScore(word) * group.length : '';
-
-          row.innerHTML = `
-            <td>${word}</td>
-            <td>${word.length}</td>
-            <td>${score}</td>
-          `;
-
-          tbody.appendChild(row);
-        }
-      }
-
-      table.appendChild(tbody);
-      return table;
+      return neighborsByDistance;  // { neighborWord: distance }
     }
-
-
-
 
 
 
@@ -1128,6 +1230,7 @@
 
     window.onload = async () => {
       await loadDictionary();
+      await loadWordGraph();      
       generateRandomBoard();
     };
   </script>
