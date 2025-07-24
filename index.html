@@ -233,28 +233,32 @@ const PERCENTAGE_PENALTY = 0.20;  // Multiply neighbor points by 75% per penalty
 
     let wordGraph = {};
 
-    async function loadWordGraph() {
-      try {
-        const response = await fetch('wordGraph.txt');
-        if (!response.ok) throw new Error('Failed to load wordGraph.txt');
-        const text = await response.text();
-    
-        // Each line: WORD → NEIGHBOR1, NEIGHBOR2, ...
-        wordGraph = {};
-        const lines = text.split('\n');
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const [wordPart, neighborsPart] = line.split('→').map(s => s.trim());
-          if (!wordPart || !neighborsPart) continue;
-          const word = wordPart.toUpperCase();
-          const neighbors = neighborsPart.split(',').map(n => n.trim().toUpperCase());
-          wordGraph[word] = neighbors;
+    function loadWordGraph() {
+      return new Promise(async (resolve, reject) => {
+        try {
+          const response = await fetch('wordGraph.txt');
+          if (!response.ok) throw new Error('Failed to load wordGraph.txt');
+          const text = await response.text();
+
+          // Each line: WORD → NEIGHBOR1, NEIGHBOR2, ...
+          wordGraph = {};
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const [wordPart, neighborsPart] = line.split('→').map(s => s.trim());
+            if (!wordPart || !neighborsPart) continue;
+            const word = wordPart.toUpperCase();
+            const neighbors = neighborsPart.split(',').map(n => n.trim().toUpperCase());
+            wordGraph[word] = neighbors;
+          }
+
+          console.log(`Loaded wordGraph with ${Object.keys(wordGraph).length} words`);
+          resolve(); // signal success
+        } catch (error) {
+          alert('Error loading wordGraph.txt: ' + error.message);
+          reject(error); // signal failure
         }
-    
-        console.log(`Loaded wordGraph with ${Object.keys(wordGraph).length} words`);
-      } catch (error) {
-        alert('Error loading wordGraph.txt: ' + error.message);
-      }
+      });
     }
 
 
